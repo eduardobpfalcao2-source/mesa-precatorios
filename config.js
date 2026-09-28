@@ -1,2 +1,2 @@
-const SUPA_URL = "__SUPA_URL__";
-const SUPA_KEY = "__SUPA_KEY__";
+const SUPA_URL = "https://jumphipxtrtrevejjhxk.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp1bXBoaXB4dHJ0cmV2ZWpqaHhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MTkwNTYsImV4cCI6MjEwNjE5NTA1Nn0.pKviZuQXaj63xpcaKaJttHYC0m7LvB0x138jJCduhWs";
