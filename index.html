@@ -1001,7 +1001,7 @@ document.addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target
 /* ============ listagens dos tribunais (base do mapa) ============ */
 S.lmeta = []; S.lrows = []; S.lcarreg = false; S.pmode = "listagens"; S.lpage = 1; S.lsel = new Set();
 S.lsort = {k:6, dir:-1};
-const LF_VAZIO = () => ({faceMin:null, faceMax:null, lista:"", ente:"", natureza:"", pref:"", num:"", naoCarteira:false});
+const LF_VAZIO = () => ({faceMin:null, faceMax:null, lista:"", ente:"", tipoEnte:"", natureza:"", pref:"", num:"", naoCarteira:false});
 S.lf = LF_VAZIO();
 const PREF_TXT = ["Sem preferência", "Superpref. — maior de 60 anos", "Superpref. — doença grave/deficiência"];
 const LPAG = 100;
@@ -1009,13 +1009,25 @@ const fdi = n => { const s = String(n); return `${s.slice(6,8)}/${s.slice(4,6)}/
 const fnum20 = n => n.length === 20 ? `${n.slice(0,7)}-${n.slice(7,9)}.${n.slice(9,13)}.${n.slice(13,14)}.${n.slice(14,16)}.${n.slice(16)}` : n;
 function lmetaDe(id) { return S.lmeta.find(m => m.id === id); }
 function vencida(m) { return m.proposta < new Date().getFullYear() + 1 && m.esfera === "FEDERAL" && m.proposta <= new Date().getFullYear(); }
+function classificaEnte(nome) {
+  const orig = String(nome || "").replace(/[\s_.]+$/, ""), k = norm(orig);
+  const R = (n, t) => ({nome:n, tipo:t, orig});
+  if (k.includes("encargosfinanceirosdauniao")) return R("União Federal", "União (administração direta)");
+  if (k.includes("fundodoregimegeraldeprevidencia") || k.includes("institutonacionaldosegurosocial")) return R("INSS", "Autarquia federal");
+  if (k.includes("fundonacionaldeassistenciasocial")) return R("União Federal (FNAS)", "União (fundo)");
+  if (k.includes("fundodeamparoaotrabalhador")) return R("União Federal (FAT)", "União (fundo)");
+  if (k.includes("fundonacionaldesaude")) return R("União Federal (FNS)", "União (fundo)");
+  if (k.startsWith("valec")) return R(orig, "Empresa pública federal");
+  if (k.startsWith("fundacao")) return R(orig, "Fundação pública federal");
+  return R(orig, "Autarquia federal");
+}
 async function carregarListagens() {
   if (!S.db) return;
   try {
     const q = await S.db.collection("listagem_itens").limit(1000).get();
     const out = [];
     for (const d of q.docs) { const b = d.data(); const m = lmetaDe(b.listagem); if (!m) continue;
-      const nomes = m.entidades.map(x => String(x).replace(/[\s_.]+$/, "")); for (const r of b.rows) out.push({num:r[0], ent:nomes[r[1]], entN:norm(m.entidades[r[1]]), nat:r[2], pref:r[3], ordem:r[4], data:r[5], valor:r[6], lista:m.id}); }
+      const cl = m.entidades.map(x => m.esfera === "FEDERAL" ? classificaEnte(x) : {nome:String(x).replace(/[\s_.]+$/, ""), tipo:"", orig:String(x)}); for (const r of b.rows) out.push({num:r[0], ent:cl[r[1]].nome, entTipo:cl[r[1]].tipo, entOrig:cl[r[1]].orig, entN:norm(cl[r[1]].nome), nat:r[2], pref:r[3], ordem:r[4], data:r[5], valor:r[6], lista:m.id}); }
     S.lrows = out; S.lcarreg = true; if (S.view === "pesquisa") render();
   } catch (e) { toast("Falha ao carregar as listagens: " + (e.code || e.message)); }
 }
@@ -1023,7 +1035,7 @@ function filtrarListagens() {
   const f = S.lf, q = (f.num || "").replace(/\D/g, ""), en = norm(f.ente);
   const naCart = new Set(S.precs.map(p => String(p.numero_precatorio || "").replace(/\D/g, "")));
   const R = S.lrows.filter(r => (!f.lista || r.lista === f.lista) && (f.faceMin == null || r.valor >= f.faceMin) && (f.faceMax == null || r.valor <= f.faceMax)
-    && (!en || r.entN.includes(en)) && (f.natureza === "" || String(r.nat) === f.natureza)
+    && (!en || r.entN === en) && (!f.tipoEnte || r.entTipo === f.tipoEnte) && (f.natureza === "" || String(r.nat) === f.natureza)
     && (f.pref === "" || (f.pref === "sem" ? r.pref === 0 : String(r.pref) === f.pref)) && (!q || r.num.includes(q)) && (!f.naoCarteira || !naCart.has(r.num)));
   const k = S.lsort.k, d = S.lsort.dir;
   const key = {6:"valor", 4:"ordem", 5:"data", 1:"entN"}[k] || "valor";
@@ -1053,6 +1065,7 @@ function vListagens() {
       <label class="f">Valor — até (R$)<input data-lf="faceMax" data-pt="num" inputmode="decimal" value="${fnumIn(f.faceMax)}" placeholder="sem limite"></label>
       <label class="f">Listagem<select data-lf="lista"><option value="">Todas</option>${opt(S.lmeta.slice().sort((a, b) => b.proposta - a.proposta).map(m => [m.id, `${m.tribunal} — proposta ${m.proposta} (${m.qtd.toLocaleString("pt-BR")})`]), f.lista)}</select></label>
       <label class="f">Ente devedor<select data-lf="ente"><option value="">Todos</option>${opt(ents, f.ente ? norm(f.ente) : "")}</select></label>
+      <label class="f">Tipo de ente<select data-lf="tipoEnte"><option value="">Todos</option>${opt([...new Set(S.lrows.map(r => r.entTipo).filter(Boolean))].sort().map(t => [t, t]), f.tipoEnte)}</select></label>
       <label class="f">Natureza<select data-lf="natureza"><option value="">Todas</option>${opt([["1","Alimentar"],["0","Comum"]], f.natureza)}</select></label>
       <label class="f">Preferência<select data-lf="pref"><option value="">Todas</option>${opt([["sem","Sem superpreferência (transferível)"],["1","Maior de 60 anos"],["2","Doença grave/deficiência"]], f.pref)}</select><span class="hint">superpreferência não passa ao fundo</span></label>
       <label class="f">Nº do precatório contém<input data-lf="num" data-pt="text" value="${esc(f.num)}"></label>
@@ -1082,7 +1095,7 @@ function vListagens() {
       <td><input type="checkbox" data-lsel="${r.num}" ${ck ? "checked" : ""} aria-label="Selecionar" style="width:auto"></td>
       <td class="num"><b>${brl(r.valor)}</b></td>
       <td class="mono" style="white-space:nowrap">${fnum20(r.num)} <button class="btn sm" data-copy="${fnum20(r.num)}" title="Copiar número" style="padding:1px 6px">copiar</button></td>
-      <td>${esc(r.ent)}</td><td>${r.nat ? `<span class="pill ok">Alimentar</span>` : "Comum"}</td>
+      <td title="${esc(r.entOrig || "")}">${esc(r.ent)}${r.entTipo ? `<div class="hint">${esc(r.entTipo)}</div>` : ""}</td><td>${r.nat ? `<span class="pill ok">Alimentar</span>` : "Comum"}</td>
       <td>${r.pref ? `<span class="pill warn">${r.pref === 1 ? "60+ anos" : "Doença grave/def."}</span>` : `<span class="hint">—</span>`}</td>
       <td class="num">${r.ordem.toLocaleString("pt-BR")}º</td><td class="mono">${fdi(r.data)}</td>
       <td><span class="pill fed">${esc(m.tribunal)}</span> <span class="mono">${m.proposta}</span></td>
@@ -1109,7 +1122,7 @@ async function levarParaCarteira() {
     Object.assign(p, {numero_precatorio:fnum20(r.num), tribunal:m.tribunal, esfera:m.esfera, ente_devedor:r.ent, regime:"GERAL", natureza:r.nat ? "ALIMENTAR" : "COMUM",
       superpreferencia:!!r.pref, valor_face:r.valor, exercicio:String(m.proposta), posicao_fila:r.ordem, data_posicao:m.data_ordem,
       data_apresentacao:`${String(r.data).slice(0,4)}-${String(r.data).slice(4,6)}-${String(r.data).slice(6,8)}`, titulares:[], origem_listagem:m.id,
-      observacoes:`Origem: ${m.fonte}, proposta ${m.proposta} (${m.arquivo}). Valor inscrito na proposta; data-base a confirmar no ofício requisitório.${r.pref ? " Superpreferência: " + PREF_TXT[r.pref] + "." : ""}`});
+      observacoes:`Origem: ${m.fonte}, proposta ${m.proposta} (${m.arquivo}). Devedor: ${r.ent} (${r.entTipo}); rubrica orçamentária: ${r.entOrig}. Processo de origem, titular e advogados: consultar pelo nº do precatório. Valor inscrito na proposta; data-base a confirmar no ofício requisitório.${r.pref ? " Superpreferência: " + PREF_TXT[r.pref] + "." : ""}`});
     p.notas = [{data:new Date().toISOString(), texto:`Trazido da listagem ${m.tribunal} ${m.proposta} (ordem ${r.ordem}º)`, auto:true}];
     await salvarPrec(p); n++;
   }
