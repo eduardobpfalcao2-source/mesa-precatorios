@@ -1001,9 +1001,9 @@ document.addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target
 /* ============ listagens dos tribunais (base do mapa) ============ */
 S.lmeta = []; S.lrows = []; S.lcarreg = false; S.pmode = "listagens"; S.lpage = 1; S.lsel = new Set();
 S.lsort = {k:6, dir:-1};
-const LF_VAZIO = () => ({faceMin:null, faceMax:null, lista:"", ente:"", tipoEnte:"", natureza:"", pref:"", num:"", naoCarteira:false});
+const LF_VAZIO = () => ({faceMin:null, faceMax:null, lista:"", ente:"", tipoEnte:"", uf:"", natureza:"", pref:"", num:"", naoCarteira:false});
 S.lf = LF_VAZIO();
-const PREF_TXT = ["Sem preferência", "Superpref. — maior de 60 anos", "Superpref. — doença grave/deficiência"];
+const PREF_TXT = ["Sem preferência", "Superpref. — idoso", "Superpref. — doença grave/deficiência"];
 const LPAG = 100;
 const fdi = n => { const s = String(n); return `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`; };
 const fnum20 = n => n.length === 20 ? `${n.slice(0,7)}-${n.slice(7,9)}.${n.slice(9,13)}.${n.slice(13,14)}.${n.slice(14,16)}.${n.slice(16)}` : n;
@@ -1012,13 +1012,13 @@ function vencida(m) { return m.proposta < new Date().getFullYear() + 1 && m.esfe
 function classificaEnte(nome) {
   const orig = String(nome || "").replace(/[\s_.]+$/, ""), k = norm(orig);
   const R = (n, t) => ({nome:n, tipo:t, orig});
-  if (k.includes("encargosfinanceirosdauniao")) return R("União Federal", "União (administração direta)");
+  if (k.includes("encargosfinanceirosdauniao") || k === "uniao" || k === "uniaofederal") return R("União Federal", "União (administração direta)");
   if (k.includes("fundodoregimegeraldeprevidencia") || k.includes("institutonacionaldosegurosocial")) return R("INSS", "Autarquia federal");
   if (k.includes("fundonacionaldeassistenciasocial")) return R("União Federal (FNAS)", "União (fundo)");
   if (k.includes("fundodeamparoaotrabalhador")) return R("União Federal (FAT)", "União (fundo)");
   if (k.includes("fundonacionaldesaude")) return R("União Federal (FNS)", "União (fundo)");
-  if (k.startsWith("valec")) return R(orig, "Empresa pública federal");
-  if (k.startsWith("fundacao")) return R(orig, "Fundação pública federal");
+  if (/^(valec|companhiabrasileiradetrens|empresabrasileiradeservicos|caixadeconstrucao)/.test(k)) return R(orig, "Empresa pública federal");
+  if (/^(fundacao|funasa|fiocruz|fundacentro|ibge|univasf)/.test(k) || k.includes("fundacao")) return R(orig, "Fundação pública federal");
   return R(orig, "Autarquia federal");
 }
 async function carregarListagens() {
@@ -1027,7 +1027,7 @@ async function carregarListagens() {
     const q = await S.db.collection("listagem_itens").limit(1000).get();
     const out = [];
     for (const d of q.docs) { const b = d.data(); const m = lmetaDe(b.listagem); if (!m) continue;
-      const cl = m.entidades.map(x => m.esfera === "FEDERAL" ? classificaEnte(x) : {nome:String(x).replace(/[\s_.]+$/, ""), tipo:"", orig:String(x)}); for (const r of b.rows) out.push({num:r[0], ent:cl[r[1]].nome, entTipo:cl[r[1]].tipo, entOrig:cl[r[1]].orig, entN:norm(cl[r[1]].nome), nat:r[2], pref:r[3], ordem:r[4], data:r[5], valor:r[6], lista:m.id}); }
+      const cl = m.entidades.map(x => m.esfera === "FEDERAL" ? classificaEnte(x) : {nome:String(x).replace(/[\s_.]+$/, ""), tipo:"", orig:String(x)}); for (const r of b.rows) out.push({num:r[0], ent:cl[r[1]].nome, entTipo:cl[r[1]].tipo, entOrig:cl[r[1]].orig, entN:norm(cl[r[1]].nome), orig:r[7] || "", dep:(m.deprecantes && r[8] != null) ? m.deprecantes[r[8]] : "", prc:r[9] || "", uf:r[9] ? String(r[9]).slice(-2) : "", nat:r[2], pref:r[3], ordem:r[4], data:r[5], valor:r[6], lista:m.id}); }
     S.lrows = out; S.lcarreg = true; if (S.view === "pesquisa") render();
   } catch (e) { toast("Falha ao carregar as listagens: " + (e.code || e.message)); }
 }
@@ -1036,7 +1036,7 @@ function filtrarListagens() {
   const naCart = new Set(S.precs.map(p => String(p.numero_precatorio || "").replace(/\D/g, "")));
   const R = S.lrows.filter(r => (!f.lista || r.lista === f.lista) && (f.faceMin == null || r.valor >= f.faceMin) && (f.faceMax == null || r.valor <= f.faceMax)
     && (!en || r.entN === en) && (!f.tipoEnte || r.entTipo === f.tipoEnte) && (f.natureza === "" || String(r.nat) === f.natureza)
-    && (f.pref === "" || (f.pref === "sem" ? r.pref === 0 : String(r.pref) === f.pref)) && (!q || r.num.includes(q)) && (!f.naoCarteira || !naCart.has(r.num)));
+    && (f.pref === "" || (f.pref === "sem" ? r.pref === 0 : String(r.pref) === f.pref)) && (!f.uf || r.uf === f.uf) && (!q || r.num.includes(q) || r.orig.replace(/\D/g, "").includes(q)) && (!f.naoCarteira || !naCart.has(r.num)));
   const k = S.lsort.k, d = S.lsort.dir;
   const key = {6:"valor", 4:"ordem", 5:"data", 1:"entN"}[k] || "valor";
   R.sort((a, b) => (typeof a[key] === "number" ? a[key] - b[key] : a[key].localeCompare(b[key])) * d);
@@ -1068,7 +1068,8 @@ function vListagens() {
       <label class="f">Tipo de ente<select data-lf="tipoEnte"><option value="">Todos</option>${opt([...new Set(S.lrows.map(r => r.entTipo).filter(Boolean))].sort().map(t => [t, t]), f.tipoEnte)}</select></label>
       <label class="f">Natureza<select data-lf="natureza"><option value="">Todas</option>${opt([["1","Alimentar"],["0","Comum"]], f.natureza)}</select></label>
       <label class="f">Preferência<select data-lf="pref"><option value="">Todas</option>${opt([["sem","Sem superpreferência (transferível)"],["1","Maior de 60 anos"],["2","Doença grave/deficiência"]], f.pref)}</select><span class="hint">superpreferência não passa ao fundo</span></label>
-      <label class="f">Nº do precatório contém<input data-lf="num" data-pt="text" value="${esc(f.num)}"></label>
+      ${S.lrows.some(r => r.uf) ? `<label class="f">UF de origem<select data-lf="uf"><option value="">Todas</option>${opt([...new Set(S.lrows.map(r => r.uf).filter(Boolean))].sort().map(u => [u, u]), f.uf)}</select></label>` : ""}
+      <label class="f">Nº do precatório ou do processo de origem contém<input data-lf="num" data-pt="text" value="${esc(f.num)}"></label>
     </div>
     <div class="row" style="margin-top:12px;gap:18px"><label class="f" style="flex-direction:row;align-items:center;gap:7px;font-size:13px"><input type="checkbox" data-lf="naoCarteira" data-pt="bool" ${f.naoCarteira ? "checked" : ""} style="width:auto">Esconder os que já estão na carteira</label>
       <span class="spacer"></span><button class="btn" id="lLimpar">Limpar filtros</button></div>
@@ -1088,13 +1089,14 @@ function vListagens() {
   </div></div>
   ${R.length ? `<div class="tablewrap"><table><thead><tr>
     <th class="nosort" style="width:30px"><input type="checkbox" id="lTodosPg" ${todosPg ? "checked" : ""} aria-label="Selecionar esta página" style="width:auto"></th>
-    <th data-lsort="6">Valor inscrito${arrow(6)}</th><th class="nosort">Nº do precatório</th><th data-lsort="1">Ente devedor${arrow(1)}</th><th class="nosort">Natureza</th><th class="nosort">Preferência</th>
-    <th data-lsort="4">Ordem${arrow(4)}</th><th data-lsort="5">Autuação${arrow(5)}</th><th class="nosort">Listagem</th><th class="nosort">Carteira</th></tr></thead><tbody>
+    <th data-lsort="6">Valor inscrito${arrow(6)}</th><th class="nosort">Nº do precatório</th><th class="nosort">Processo de origem</th><th data-lsort="1">Ente devedor${arrow(1)}</th><th class="nosort">Natureza</th><th class="nosort">Preferência</th>
+    <th data-lsort="4">Ordem${arrow(4)}</th><th data-lsort="5">Apresentação${arrow(5)}</th><th class="nosort">Listagem</th><th class="nosort">Carteira</th></tr></thead><tbody>
     ${pg.map(r => { const m = lmetaDe(r.lista), ck = S.lsel.has(r.num), cart = naCart.has(r.num);
       return `<tr style="${ck ? "background:var(--accent-soft)" : ""}">
       <td><input type="checkbox" data-lsel="${r.num}" ${ck ? "checked" : ""} aria-label="Selecionar" style="width:auto"></td>
       <td class="num"><b>${brl(r.valor)}</b></td>
-      <td class="mono" style="white-space:nowrap">${fnum20(r.num)} <button class="btn sm" data-copy="${fnum20(r.num)}" title="Copiar número" style="padding:1px 6px">copiar</button></td>
+      <td class="mono" style="white-space:nowrap">${fnum20(r.num)} <button class="btn sm" data-copy="${fnum20(r.num)}" title="Copiar número" style="padding:1px 6px">copiar</button>${r.prc ? `<div class="hint mono">${esc(r.prc)}</div>` : ""}</td>
+      <td>${r.orig ? `<span class="mono" style="white-space:nowrap">${esc(r.orig)}</span> <button class="btn sm" data-copy="${esc(r.orig)}" title="Copiar processo de origem" style="padding:1px 6px">copiar</button>${r.dep ? `<div class="hint">${esc(r.dep)}</div>` : ""}` : `<span class="hint">não publicado</span>`}</td>
       <td title="${esc(r.entOrig || "")}">${esc(r.ent)}${r.entTipo ? `<div class="hint">${esc(r.entTipo)}</div>` : ""}</td><td>${r.nat ? `<span class="pill ok">Alimentar</span>` : "Comum"}</td>
       <td>${r.pref ? `<span class="pill warn">${r.pref === 1 ? "60+ anos" : "Doença grave/def."}</span>` : `<span class="hint">—</span>`}</td>
       <td class="num">${r.ordem.toLocaleString("pt-BR")}º</td><td class="mono">${fdi(r.data)}</td>
@@ -1120,9 +1122,9 @@ async function levarParaCarteira() {
   for (const r of itens) {
     const m = lmetaDe(r.lista), p = novoDraft();
     Object.assign(p, {numero_precatorio:fnum20(r.num), tribunal:m.tribunal, esfera:m.esfera, ente_devedor:r.ent, regime:"GERAL", natureza:r.nat ? "ALIMENTAR" : "COMUM",
-      superpreferencia:!!r.pref, valor_face:r.valor, exercicio:String(m.proposta), posicao_fila:r.ordem, data_posicao:m.data_ordem,
+      superpreferencia:!!r.pref, valor_face:r.valor, processo_origem:r.orig || "", juizo_origem:r.dep || "", exercicio:String(m.proposta), posicao_fila:r.ordem, data_posicao:m.data_ordem,
       data_apresentacao:`${String(r.data).slice(0,4)}-${String(r.data).slice(4,6)}-${String(r.data).slice(6,8)}`, titulares:[], origem_listagem:m.id,
-      observacoes:`Origem: ${m.fonte}, proposta ${m.proposta} (${m.arquivo}). Devedor: ${r.ent} (${r.entTipo}); rubrica orçamentária: ${r.entOrig}. Processo de origem, titular e advogados: consultar pelo nº do precatório. Valor inscrito na proposta; data-base a confirmar no ofício requisitório.${r.pref ? " Superpreferência: " + PREF_TXT[r.pref] + "." : ""}`});
+      observacoes:`Origem: ${m.fonte}, proposta ${m.proposta} (${m.arquivo}). Devedor: ${r.ent} (${r.entTipo}); rubrica orçamentária: ${r.entOrig}. ${r.orig ? "Processo de origem publicado pelo tribunal: " + r.orig + (r.dep ? " (" + r.dep + ")" : "") + ". Titular e advogados: consultar no processo de origem." : "Processo de origem, titular e advogados: consultar pelo nº do precatório."} Valor inscrito na proposta; data-base a confirmar no ofício requisitório.${r.pref ? " Superpreferência: " + PREF_TXT[r.pref] + "." : ""}`});
     p.notas = [{data:new Date().toISOString(), texto:`Trazido da listagem ${m.tribunal} ${m.proposta} (ordem ${r.ordem}º)`, auto:true}];
     await salvarPrec(p); n++;
   }
@@ -1140,8 +1142,8 @@ document.addEventListener("click", async ev => {
   if (t.id === "lNenhum") { S.lsel.clear(); return render(); }
   if (t.id === "lLevar") return levarParaCarteira();
   if (t.id === "lExport") { const rows = S.lrows.filter(r => S.lsel.has(r.num));
-    const csv = ["Nº do precatório;Ente devedor;Natureza;Preferência;Valor inscrito;Ordem;Data de autuação;Tribunal;Proposta", ...rows.map(r => { const m = lmetaDe(r.lista);
-      return [fnum20(r.num), r.ent, r.nat ? "Alimentar" : "Comum", PREF_TXT[r.pref], fnumIn(r.valor), r.ordem, fdi(r.data), m.tribunal, m.proposta].map(CSV_ESC).join(";"); })].join("\n");
+    const csv = ["Nº do precatório;Processo de origem;Juízo de origem;Ente devedor;Natureza;Preferência;Valor inscrito;Ordem;Data;Tribunal;Proposta", ...rows.map(r => { const m = lmetaDe(r.lista);
+      return [fnum20(r.num), r.orig, r.dep, r.ent, r.nat ? "Alimentar" : "Comum", PREF_TXT[r.pref], fnumIn(r.valor), r.ordem, fdi(r.data), m.tribunal, m.proposta].map(CSV_ESC).join(";"); })].join("\n");
     return oferecerArquivo(`listagem_selecionados_${todayISO()}.csv`, csv); }
 }, true);
 document.addEventListener("change", ev => {
@@ -1241,17 +1243,25 @@ async function entrar(sb) {
   semearBasePublica(sb).catch(e => toast("Falha ao carregar a base pública: " + (e.message || e)));
 }
 async function semearBasePublica(sb) {
-  const {count, error} = await sb.from("docs").select("id", {count:"exact", head:true}).eq("collection", "listagens");
-  if (error || count) return;
-  toast("Primeiro acesso: carregando as listagens dos tribunais…");
+  let man; try { man = await (await fetch("dados/manifesto.json", {cache:"no-store"})).json(); } catch (e) { return; }
+  const {data:ex, error} = await sb.from("docs").select("id").eq("collection", "listagens");
+  if (error) return;
+  const tem = new Set((ex || []).map(r => r.id));
+  const faltam = man.listagens.filter(id => !tem.has(id));
+  const semIndices = !(await sb.from("docs").select("id").eq("collection", "indices").eq("id", "serie").maybeSingle()).data;
+  if (!faltam.length && !semIndices) return;
+  toast("Carregando listagens novas dos tribunais…");
   const b = await (await fetch("dados/base_publica.json", {cache:"no-store"})).json();
   const lotes = [];
-  for (const c of ["indices", "listagem_itens", "listagens"]) for (const d of (b.docs[c] || [])) lotes.push({collection:c, id:d.id, data:d.data, updated_at:new Date().toISOString()});
+  if (semIndices) for (const d of (b.docs.indices || [])) lotes.push({collection:"indices", id:d.id, data:d.data, updated_at:new Date().toISOString()});
+  for (const d of (b.docs.listagem_itens || [])) if (faltam.includes(d.data.listagem)) lotes.push({collection:"listagem_itens", id:d.id, data:d.data, updated_at:new Date().toISOString()});
+  for (const d of (b.docs.listagens || [])) if (faltam.includes(d.id)) lotes.push({collection:"listagens", id:d.id, data:d.data, updated_at:new Date().toISOString()});
   for (let i = 0; i < lotes.length; i += 3) { const {error:e} = await sb.from("docs").upsert(lotes.slice(i, i + 3)); if (e) throw e; }
   const q = await S.db.collection("listagens").get(); S.lmeta = q.docs.map(d => ({...d.data(), id:d.id}));
   const ix = await S.db.doc("indices/serie").get(); if (ix.exists) { const d = ix.data(); S.selic = {...d.selic}; S.ipca = {...d.ipca}; S.idxMeta = {fonte:d.fonte, coleta:d.coleta}; }
   S.lcarreg = false; await carregarListagens(); toast("Listagens carregadas"); render();
 }
+
 function iniciarWeb() {
   if (!window.supabase || !SUPA_URL || SUPA_URL.includes("__")) { $("#main").innerHTML = `<div class="panel empty">App ainda não configurado: falta o endereço do banco de dados.</div>`; return; }
   const sb = supabase.createClient(SUPA_URL, SUPA_KEY); window._sb = sb;
