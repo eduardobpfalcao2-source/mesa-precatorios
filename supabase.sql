@@ -7,7 +7,8 @@ create table if not exists public.membros (
 );
 insert into public.membros (email, nome) values
   ('eduardobpfalcao2@gmail.com', 'Eduardo'),
-  ('gabrielbpfalcao1@gmail.com', 'Gabriel')
+  ('gabrielbpfalcao1@gmail.com', 'Gabriel'),
+  ('pedroian35@gmail.com', 'Pedro')
 on conflict (email) do nothing;
 
 create or replace function public.e_membro() returns boolean
