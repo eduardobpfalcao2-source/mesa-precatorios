@@ -936,7 +936,7 @@ function vListagens() {
   const ents = [...new Map(S.lrows.filter(r => !f.lista || r.lista === f.lista).map(r => [r.entN, r.ent])).entries()].sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
   const opt = (arr, v) => arr.map(o => `<option value="${esc(o[0])}" ${String(v) === String(o[0]) ? "selected" : ""}>${esc(o[1])}</option>`).join("");
   const chip = (v, l) => `<button class="btn sm ${f.faceMin === v && f.faceMax == null ? "primary" : ""}" data-lchip="${v}">${l}</button>`;
-  const naR = new Set(R.map(r => r.lista)); const avisos = S.lmeta.filter(m => naR.has(m.id) && vencida(m));
+  const naR = new Set(R.map(r => r.lista)); let fechados = []; try { fechados = JSON.parse(localStorage.getItem("avisosFechados") || "[]"); } catch (e) {} const avisos = S.lmeta.filter(m => naR.has(m.id) && vencida(m) && !fechados.includes(m.id));
   const arrow = k => S.lsort.k === k ? (S.lsort.dir > 0 ? " ↑" : " ↓") : "";
   const todosPg = pg.length && pg.every(r => S.lsel.has(r.num));
   return `<div class="panel" style="margin-bottom:14px">
@@ -959,7 +959,7 @@ function vListagens() {
       <label class="f" style="flex-direction:row;align-items:center;gap:7px;font-size:13px"><input type="checkbox" data-lf="comAdv" data-pt="bool" ${f.comAdv ? "checked" : ""} style="width:auto">Só com advogado</label>
       <span class="spacer"></span>${f.lista && (lmetaDe(f.lista) || {}).importada ? `<button class="btn sm danger" data-lexcluir="${esc(f.lista)}">Excluir esta lista</button>` : ""}<button class="btn" id="lLimpar">Limpar filtros</button></div>
   </div>
-  ${avisos.map(m => `<div class="alert media"><div><b>Proposta ${m.proposta}: confirme se ainda está em aberto</b>O prazo constitucional para pagar a proposta ${m.proposta} ${m.proposta < new Date().getFullYear() ? "venceu em 31/12/" + m.proposta : "é 31/12/" + m.proposta + " e o pagamento pode já ter ocorrido"}. A União costuma pagar no prazo, então a maioria destes deve estar paga. A listagem é uma fotografia de ${fdate(m.data_ordem)}.</div></div>`).join("")}
+  ${avisos.map(m => `<div class="alert media"><div><b>Proposta ${m.proposta}: confirme se ainda está em aberto</b>O prazo constitucional para pagar a proposta ${m.proposta} ${m.proposta < new Date().getFullYear() ? "venceu em 31/12/" + m.proposta : "é 31/12/" + m.proposta + " e o pagamento pode já ter ocorrido"}. A União costuma pagar no prazo, então a maioria destes deve estar paga. A listagem é uma fotografia de ${fdate(m.data_ordem)}.<div style="margin-top:6px"><button class="btn sm" data-fecharaviso="${esc(m.id)}">Entendi, não mostrar mais</button></div></div></div>`).join("")}
   <div class="kpis">
     <div class="kpi"><div class="l">Encontrados</div><div class="v">${R.length.toLocaleString("pt-BR")}</div><div class="s">de ${S.lrows.length.toLocaleString("pt-BR")} na base</div></div>
     <div class="kpi"><div class="l">Soma do valor inscrito</div><div class="v">${brlc(soma)}</div><div class="s">${R.length ? "médio " + brlc(soma / R.length) : ""}</div></div>
@@ -1041,7 +1041,7 @@ async function importarParaBase(itens) {
         return [String(p.numero_precatorio || "").replace(/\D/g, "") || String(p.numero_precatorio || ""), 0, p.natureza === "ALIMENTAR" ? 1 : 0, p.superpreferencia ? 1 : 0, p.posicao_fila || i + 1,
           ymd(p.data_apresentacao), p.valor_atualizado_informado || p.valor_face || 0, p.processo_origem || "", di, "",
           {adv:(p.advogados || []).map(a => ({n:a.nome, o:a.oab})), obs, sit:p.situacao || "", cert:cert ? cert[0].toUpperCase() + cert.slice(1) : ""}]; });
-      const TAM = 2000, chunks = Math.ceil(rows.length / TAM);
+      const TAM = 400, chunks = Math.ceil(rows.length / TAM);
       for (let c = 0; c < chunks; c++) await S.db.collection("listagem_itens").doc(`${g.id}-c${String(c).padStart(2, "0")}`).set({listagem:g.id, i:c, rows:rows.slice(c * TAM, (c + 1) * TAM)});
       const datas = g.itens.map(p => p.data_posicao || p.data_valor_atualizado).filter(Boolean).sort();
       const anos = g.itens.map(p => Number(p.exercicio)).filter(Boolean);
@@ -1051,7 +1051,7 @@ async function importarParaBase(itens) {
         qtd:rows.length, total:rows.reduce((s, r) => s + r[6], 0), entidades:[g.ente], deprecantes:deps, chunks});
       total += rows.length; ultimo = g.id;
     }
-  } catch (e) { return toast("Falha ao enviar para a base: " + (e.message || e)); }
+  } catch (e) { console.error("[importar]", e); return modal(`<h2>Não consegui enviar para a base</h2><p>O banco respondeu: <b>${esc(e.message || String(e))}</b></p><p>Tire um print desta mensagem e mande para a equipe.</p><div class="row"><button class="btn" data-close>Fechar</button></div>`); }
   S.imp = null; S.impArq = null; toast(`${total.toLocaleString("pt-BR")} precatório(s) na base`);
   S.lf = LF_VAZIO(); if (grupos.length === 1) S.lf.lista = ultimo; S.pmode = "listagens"; S.lpage = 1; return go("pesquisa");
 }
@@ -1086,6 +1086,7 @@ document.addEventListener("click", async ev => {
   if (d.lpg) { S.lpage = Number(d.lpg); render(); window.scrollTo(0, 0); return; }
   if (d.copy) { try { await navigator.clipboard.writeText(d.copy); toast("Número copiado"); } catch (e) { toast(d.copy); } return; }
   if (t.id === "lLimpar") { S.lf = LF_VAZIO(); S.lpage = 1; return render(); }
+  if (d.fecharaviso) { let f = []; try { f = JSON.parse(localStorage.getItem("avisosFechados") || "[]"); } catch (e) {} f.push(d.fecharaviso); try { localStorage.setItem("avisosFechados", JSON.stringify(f)); } catch (e) {} S.avisosOff = f; return render(); }
   if (d.lexcluir) { const m = lmetaDe(d.lexcluir); return modal(`<h2>Excluir a lista ${esc(lnome(m))}?</h2><p>Sai da base os ${m.qtd.toLocaleString("pt-BR")} precatórios desta lista. Os que você já levou para a carteira continuam lá. Para trazer de volta, importe a planilha de novo.</p><div class="row"><button class="btn danger" data-lexcluirok="${esc(m.id)}">Excluir</button><button class="btn" data-close>Cancelar</button></div>`); }
   if (d.lexcluirok) { fechaModal(); await apagarLista(d.lexcluirok); S.lf.lista = ""; toast("Lista excluída"); return render(); }
   if (t.id === "lNenhum") { S.lsel.clear(); return render(); }
